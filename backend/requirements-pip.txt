@@ -1,0 +1,12 @@
+# Minimal backend Python dependencies for BrainTease
+Django
+djangorestframework
+firebase-admin
+
+# Optional / recommended:
+psycopg2-binary  # if you plan to use Postgres in production
+pytest
+pytest-django
+
+# Cluebase
+requests==2.31.0
