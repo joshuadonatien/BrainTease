@@ -1,0 +1,80 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+env/
+venv/
+.venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Django
+*/migrations/__pycache__/
+*.log
+*.pot
+*.pyc
+*.pyo
+*~
+*.sqlite3
+/db.sqlite3
+/media
+/staticfiles
+staticfiles/
+*.db
+
+# Django local settings
+.env
+.env.local
+local_settings.py
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+pnpm-lock.yaml
+/.pnp
+/.pnp.js
+
+# Build outputs
+/frontend/build/
+/frontend/dist/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# Python virtual envs
+venv/
+ENV/
+env/
+
+# pytest
+.pytest_cache/
+
+# Coverage
+.coverage
+coverage.xml
+htmlcov/
+
+#Firebase Private Key
+serviceAccountKey.json
+.env
+
+# Secrets
+*.key
+*.pem
+*.crt
+
+# Misc
+*.swp
+*.lock
+
