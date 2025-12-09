@@ -156,6 +156,16 @@ except Exception:
     pass
 
 
-# ClubeBase API base URL
+# OpenTDB configuration
 import os
-CLUEBASE_API_BASE = os.getenv("CLUEBASE_API_BASE", "http://127.0.0.1:8000")
+
+OPEN_TDB_BASE_URL = os.getenv("OPEN_TDB_BASE_URL", "https://opentdb.com")
+OPEN_TDB_DEFAULT_AMOUNT = int(os.getenv("OPEN_TDB_DEFAULT_AMOUNT", "10"))
+
+# Caching configuration
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 'unique-snowflake',
+    }
+}
