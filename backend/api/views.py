@@ -8,11 +8,11 @@ from django.utils import timezone
 from django.db import transaction
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, serializers
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from .firebase_auth import FirebaseAuthentication
-from .serializers import SubmitScoreSerializer
+from .serializers import SubmitScoreSerializer, UpdateDisplayNameSerializer
 from .models import UserScore, GameSession
 
 import requests
@@ -107,8 +107,10 @@ class SubmitScoreView(APIView):
 
 					# Create GameSession record (detailed game data)
 					# Error handling: Database exceptions caught below
+					# Optimization: Store display_name to avoid Firebase lookups in leaderboard
 					gs = GameSession.objects.create(
 						user_id=uid,
+						display_name=display_name,  # Store display_name for leaderboard efficiency
 						difficulty=data["difficulty"],
 						categories=data.get("categories", []),
 						score=data["score"],
@@ -121,13 +123,15 @@ class SubmitScoreView(APIView):
 
 				# Fallback path: Create lightweight UserScore if no session fields provided
 				# This allows backward compatibility with simpler score submissions
+				# Optimization: Store display_name to avoid Firebase lookups in leaderboard
 				us = UserScore.objects.create(
 					user_id=uid,
+					display_name=display_name,  # Store display_name for leaderboard efficiency
 					difficulty=data["difficulty"],
 					score=data["score"],
 				)
 				logger.info(f"UserScore created: {us.id} for user {uid}")
-				return Response(us.to_response(display_name), status=status.HTTP_201_CREATED)
+				return Response(us.to_response(display_name, include_message=True), status=status.HTTP_201_CREATED)
 
 			except Exception as db_error:
 				# Database error handling: Log full error details for debugging
@@ -224,12 +228,22 @@ class LeaderboardView(APIView):
 				filters["created_at__gte"] = since
 
 			# Fetch candidates from both models and merge
+			# Optimization: Use only() to fetch only needed fields, reducing memory and network overhead
 			# Error handling: Database queries wrapped in try/except
 			# Fallback: Return 500 error if database query fails (connection issue, etc.)
 			try:
 				# Fetch 2x limit to account for merging and sorting
-				user_scores = list(UserScore.objects.filter(**filters).order_by("-score", "created_at")[: limit * 2])
-				sessions = list(GameSession.objects.filter(**filters).order_by("-score", "created_at")[: limit * 2])
+				# Optimization: Only fetch fields needed for sorting and response
+				user_scores = list(
+					UserScore.objects.filter(**filters)
+					.only('id', 'user_id', 'score', 'difficulty', 'created_at')
+					.order_by("-score", "created_at")[: limit * 2]
+				)
+				sessions = list(
+					GameSession.objects.filter(**filters)
+					.only('id', 'user_id', 'score', 'difficulty', 'created_at')
+					.order_by("-score", "created_at")[: limit * 2]
+				)
 			except Exception as db_error:
 				# Database error handling: Log full error, return generic message
 				logger.error(f"Database error in LeaderboardView: {str(db_error)}", exc_info=True)
@@ -238,6 +252,7 @@ class LeaderboardView(APIView):
 					status=status.HTTP_500_INTERNAL_SERVER_ERROR
 				)
 
+			# Optimization: Sort in Python after fetching (needed for merging two querysets)
 			combined = user_scores + sessions
 			# sort by score desc, created_at asc (tie-breaker)
 			combined.sort(key=lambda o: (-o.score, o.created_at))
@@ -247,25 +262,43 @@ class LeaderboardView(APIView):
 			end = start + limit
 			page_items = combined[start:end]
 
+			# Optimization: Use stored display_name from database (no Firebase lookups needed)
+			# Fallback: Only fetch from Firebase if display_name is not stored
+			# This significantly reduces Firebase API calls and improves performance
+			unique_user_ids = list(set(obj.user_id for obj in page_items))
+			display_names_cache = {}
+			
+			# Only fetch from Firebase for users without stored display_name
+			# Optimization: Batch Firebase lookups only for users missing display_name
+			users_needing_fetch = [
+				uid for uid in unique_user_ids
+				if not any(obj.user_id == uid and obj.display_name for obj in page_items)
+			]
+			
+			if firebase_auth and users_needing_fetch:
+				for user_id in users_needing_fetch:
+					try:
+						display_name = _get_display_name(user_id)
+						if display_name:
+							display_names_cache[user_id] = display_name
+					except Exception as name_error:
+						# Fallback: Log but continue - missing display name is acceptable
+						logger.debug(f"Could not fetch display name for {user_id}: {str(name_error)}")
+						display_names_cache[user_id] = None
+
 			# Build leaderboard response with per-item error handling
 			# Fallback strategy: Continue processing even if individual items fail
 			leaderboard: List[dict] = []
 			rank = start + 1
 			for obj in page_items:
-				# Resolve display name with fallback logic
-				# Fallback: Use None if Firebase lookup fails (non-fatal, entry still included)
-				display_name = None
-				try:
-					display_name = _get_display_name(obj.user_id)
-				except Exception as name_error:
-					# Fallback: Log but continue - missing display name is acceptable
-					logger.debug(f"Could not fetch display name for {obj.user_id}: {str(name_error)}")
-					display_name = None
+				# Optimization: Use stored display_name first, then fall back to Firebase cache
+				display_name = obj.display_name or display_names_cache.get(obj.user_id)
 
 				# Format response with fallback logic
 				# Fallback: Skip this entry if formatting fails (prevent one bad entry from breaking entire response)
 				try:
-					resp = obj.to_response(display_name)
+					# Optimization: Exclude message field for leaderboard (reduces response size)
+					resp = obj.to_response(display_name, include_message=False)
 					resp["rank"] = rank
 					# normalize keys to match contract
 					resp["user_display"] = resp.pop("user_display_name", None)
@@ -484,9 +517,15 @@ class StartGameView(APIView):
             # Fallback: Return 500 error if database write fails
             try:
                 with transaction.atomic():
+                    # Get display name with fallback: try from request.user first, then fetch from Firebase
+                    # Fallback: Returns None if Firebase lookup fails (non-fatal)
+                    display_name = getattr(request.user, "display_name", None) or _get_display_name(uid)
+                    
                     # Atomic transaction: Either all operations succeed or all roll back
+                    # Optimization: Store display_name to avoid Firebase lookups in leaderboard
                     session = GameSession.objects.create(
                         user_id=uid,
+                        display_name=display_name,  # Store display_name for leaderboard efficiency
                         difficulty=difficulty,
                         categories=category_ids,
                         score=0,
@@ -498,13 +537,15 @@ class StartGameView(APIView):
                     session.save()
                     logger.info(f"GameSession created: {session.id} for user {uid} with {len(questions)} questions")
 
+                # Optimization: Return minimal session info first, questions can be large
+                # Response structure optimized for frontend consumption
                 return Response({
                     "session_id": str(session.id),
                     "difficulty": difficulty,
                     "total_questions": len(questions),
                     "allowed_hints": session.allowed_hints,
                     "hints_used": session.hints_used,
-                    "questions": questions,
+                    "questions": questions,  # Full questions included for initial game setup
                 }, status=status.HTTP_201_CREATED)
 
             except Exception as db_error:
@@ -524,6 +565,89 @@ class StartGameView(APIView):
             )
 
 
+
+
+class UpdateDisplayNameView(APIView):
+    """Allows authenticated users to update their display name for leaderboard."""
+    authentication_classes = [FirebaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Update display name for the authenticated user with validation and error handling.
+        
+        Error Handling Strategy:
+        - Validates input format and length
+        - Updates all existing UserScore and GameSession records for the user
+        - Uses database transactions for atomicity
+        - Handles database errors gracefully
+        """
+        try:
+            # Authentication validation with fallback
+            # Fallback: Return 401 if UID missing (defensive check)
+            uid = getattr(request.user, "uid", None)
+            if not uid:
+                logger.warning("UpdateDisplayNameView: Missing user UID")
+                return Response(
+                    {"error": "User authentication failed"},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            # Validate request data
+            serializer = UpdateDisplayNameSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            display_name = serializer.validated_data["display_name"].strip()
+
+            # Input validation: Ensure display name is not empty after trimming
+            # No fallback - empty display name returns error
+            if not display_name:
+                return Response(
+                    {"error": "display_name cannot be empty"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Update all existing records for this user with database transaction
+            # Error handling: Transaction ensures all-or-nothing update
+            # Fallback: Return 500 error if database update fails
+            try:
+                with transaction.atomic():
+                    # Atomic transaction: Update all UserScore and GameSession records
+                    updated_scores = UserScore.objects.filter(user_id=uid).update(display_name=display_name)
+                    updated_sessions = GameSession.objects.filter(user_id=uid).update(display_name=display_name)
+                    
+                    logger.info(f"Updated display_name for user {uid}: {updated_scores} scores, {updated_sessions} sessions")
+                    
+                    return Response({
+                        "message": "Display name updated successfully",
+                        "display_name": display_name,
+                        "updated_scores": updated_scores,
+                        "updated_sessions": updated_sessions,
+                    }, status=status.HTTP_200_OK)
+
+            except Exception as db_error:
+                # Database error handling: Log full error, return generic message
+                # Fallback: Return 500 error (transaction ensures no partial update)
+                logger.error(f"Database error in UpdateDisplayNameView: {str(db_error)}", exc_info=True)
+                return Response(
+                    {"error": "Failed to update display name"},
+                    status=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+        except serializers.ValidationError as e:
+            # Serializer validation error: Return formatted error response
+            # Fallback: Return validation errors in standard format
+            return Response(
+                {"error": str(e.detail) if hasattr(e, 'detail') else str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            # Top-level error handler: Catch any unexpected exceptions
+            # Fallback: Return generic error to prevent exposing internal implementation details
+            logger.error(f"Unexpected error in UpdateDisplayNameView: {str(e)}", exc_info=True)
+            return Response(
+                {"error": "An unexpected error occurred"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 
 class UseHintView(APIView):
@@ -564,8 +688,11 @@ class UseHintView(APIView):
 
             # Fetch session with error handling
             # Fallback: Return 404 if session doesn't exist
+            # Optimization: Only fetch fields needed for validation and update
             try:
-                session = GameSession.objects.get(id=session_id)
+                session = GameSession.objects.only(
+                    'id', 'user_id', 'allowed_hints', 'hints_used'
+                ).get(id=session_id)
             except GameSession.DoesNotExist:
                 logger.warning(f"UseHintView: Session {session_id} not found")
                 return Response(

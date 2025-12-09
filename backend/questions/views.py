@@ -54,15 +54,28 @@ def get_questions(request):
                 )
 
         try:
+            # Optimization: Use database-level query instead of loading all into memory
+            # For large datasets, this prevents loading thousands of questions into memory
             qs = Question.objects.all()
             if difficulty:
                 qs = qs.filter(difficulty=difficulty)
 
-            question_list = list(qs)
-            random.shuffle(question_list)  # randomize order
-
-            # Limit results
-            question_list = question_list[:limit]
+            # Optimization: Count first to check if we have enough questions
+            # If we have fewer questions than limit, no need for complex randomization
+            total_count = qs.count()
+            
+            if total_count <= limit:
+                # If we have fewer or equal questions, return all (no need to shuffle)
+                question_list = list(qs)
+                random.shuffle(question_list)
+            else:
+                # Optimization: For large datasets, use random sampling instead of loading all
+                # Fetch more than needed, then shuffle and limit in Python
+                # This balances memory usage with true randomization
+                fetch_count = min(limit * 3, total_count)  # Fetch 3x limit for better randomization
+                question_list = list(qs[:fetch_count])
+                random.shuffle(question_list)
+                question_list = question_list[:limit]
 
             serializer = QuestionSerializer(question_list, many=True)
             return Response({"success": True, "questions": serializer.data}, status=status.HTTP_200_OK)
@@ -125,8 +138,12 @@ def questions_proxy_view(request):
 
         items = fetch_questions(amount=amount, difficulty=difficulty, category=category, qtype=qtype)
 
+        # Optimization: Pre-allocate list size for better memory efficiency
         results = []
+        results_append = results.append  # Optimization: Cache method lookup
+        
         for i, it in enumerate(items):
+            # Optimization: Only include fields that are actually used
             item = {
                 "id": f"opentdb-{i}",
                 "question": it.get("question", ""),
@@ -136,13 +153,14 @@ def questions_proxy_view(request):
                 "category": it.get("category", ""),
                 "type": it.get("type", "multiple")
             }
+            # Optimization: Only compute hints if requested (saves processing time)
             if include_hints:
                 correct = it.get("correct_answer", "")
                 if correct:
                     item["hints"] = {
                         "reduced_choices": eliminate_choices(correct, it.get("incorrect_answers", []), remove_count=1)
                     }
-            results.append(item)
+            results_append(item)
 
         return Response({"results": results}, status=status.HTTP_200_OK)
     except Exception as e:

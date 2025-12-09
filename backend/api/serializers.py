@@ -7,3 +7,7 @@ class SubmitScoreSerializer(serializers.Serializer):
 	total_questions = serializers.IntegerField(required=False, allow_null=True)
 	time_taken_seconds = serializers.IntegerField(required=False, allow_null=True)
 	categories = serializers.ListField(child=serializers.CharField(), required=False)
+
+
+class UpdateDisplayNameSerializer(serializers.Serializer):
+	display_name = serializers.CharField(max_length=255, required=True, allow_blank=False)
