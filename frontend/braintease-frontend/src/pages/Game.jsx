@@ -373,7 +373,9 @@ export default function Game() {
           let buttonStyle = {
             padding: '15px',
             fontSize: '16px',
-            border: '2px solid #ddd',
+            borderWidth: '2px',
+            borderStyle: 'solid',
+            borderColor: '#ddd',
             borderRadius: '8px',
             cursor: showResult ? 'default' : 'pointer',
             backgroundColor: '#fff',
