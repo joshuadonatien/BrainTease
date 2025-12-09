@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import "./Home.css";
+import DifficultySelector from "./DifficultySelector";
 
 export default function Home() {
   return (
@@ -13,6 +14,10 @@ export default function Home() {
         <Link to="/game" className="btn-primary">Start Game</Link>
         <Link to="/leaderboard" className="btn-secondary">Leaderboard</Link>
       </div>
+      <div>
+      <h1>BrainTease</h1>
+      <DifficultySelector />
+    </div>
 
       <div className="home-info">
         <h3>How it works</h3>
