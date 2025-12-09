@@ -11,6 +11,9 @@ from .firebase_auth import FirebaseAuthentication
 from .serializers import SubmitScoreSerializer
 from .models import UserScore, GameSession
 
+import requests
+from rest_framework.decorators import api_view, permission_classes
+
 try:
 	from firebase_admin import auth as firebase_auth
 except Exception:
@@ -138,4 +141,129 @@ class QuestionsView(APIView):
 	def get(self, request):
 		# TODO: implement question retrieval and query params
 		return Response({"questions": []}, status=status.HTTP_200_OK)
+
+
+class StartGameView(APIView):
+    """Starts a new game: fetches only multiple-choice questions from OpenTDB, creates GameSession, sets hint limits."""
+    authentication_classes = [FirebaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        uid = getattr(request.user, "uid", None)
+
+        difficulty = request.data.get("difficulty", "easy").lower()
+        num_questions = int(request.data.get("amount", 10))
+        category_ids = request.data.get("categories", [])
+
+        # Validate difficulty
+        if difficulty not in ["easy", "medium", "hard"]:
+            return Response({"error": "Invalid difficulty"}, status=400)
+
+        # Build OpenTDB request
+        base_url = "https://opentdb.com/api.php"
+        params = {
+            "amount": num_questions,
+            "difficulty": difficulty,
+            "type": "multiple",  # ONLY multiple choice
+        }
+        if category_ids:
+            params["category"] = ",".join(map(str, category_ids))
+
+        # Fetch questions
+        response = requests.get(base_url, params=params)
+        data = response.json()
+
+        if data.get("response_code") != 0:
+            return Response({"error": "OpenTDB returned no results"}, status=400)
+
+        # Filter out any boolean questions just in case
+        questions = [q for q in data.get("results", []) if q.get("type") == "multiple"]
+
+        if not questions:
+            return Response({"error": "No multiple-choice questions available"}, status=400)
+
+        # RANDOMIZE QUESTION ORDER
+        import random
+        random.shuffle(questions)
+
+        # Optional: shuffle answers for each question
+        for q in questions:
+            answers = q["incorrect_answers"] + [q["correct_answer"]]
+            random.shuffle(answers)
+            q["shuffled_answers"] = answers
+
+        # Create game session
+        session = GameSession.objects.create(
+            user_id=uid,
+            difficulty=difficulty,
+            categories=category_ids,
+            score=0,
+            total_questions=len(questions),
+        )
+
+        # Set allowed hints
+        session.set_hint_limits()
+        session.save()
+
+        return Response({
+            "session_id": str(session.id),
+            "difficulty": difficulty,
+            "total_questions": len(questions),
+            "allowed_hints": session.allowed_hints,
+            "hints_used": session.hints_used,
+            "questions": questions,
+        }, status=201)
+
+
+
+
+class UseHintView(APIView):
+    """Removes one incorrect answer and updates hint usage."""
+    authentication_classes = [FirebaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, session_id):
+        try:
+            session = GameSession.objects.get(id=session_id)
+        except GameSession.DoesNotExist:
+            return Response({"error": "Game session not found"}, status=404)
+
+        # Check remaining hints
+        if session.hints_used >= session.allowed_hints:
+            return Response({"error": "No hints remaining"}, status=400)
+
+        correct_answer = request.data.get("correct_answer")
+        incorrect_answers = request.data.get("incorrect_answers")
+
+        if not correct_answer or not incorrect_answers:
+            return Response(
+                {"error": "correct_answer and incorrect_answers are required"},
+                status=400,
+            )
+
+        if not isinstance(incorrect_answers, list):
+            return Response({"error": "incorrect_answers must be a list"}, status=400)
+
+        # Cannot remove an incorrect answer if none remain
+        if len(incorrect_answers) == 0:
+            return Response(
+                {"error": "No incorrect answers available to remove"},
+                status=400,
+            )
+
+        # Remove ONE incorrect answer
+        removed = incorrect_answers[0]  # simple removal strategy
+        remaining_incorrect = incorrect_answers[1:]  # keep the rest
+
+        # Update session
+        session.hints_used += 1
+        session.save()
+
+        return Response({
+            "removed_answer": removed,
+            "remaining_answers": [correct_answer] + remaining_incorrect,
+            "hints_used": session.hints_used,
+            "hints_remaining": session.allowed_hints - session.hints_used,
+        })
+
 
