@@ -8,15 +8,19 @@ import { apiGet } from './api';
  * @returns {Promise<Array>} Array of category objects with id and name
  */
 export async function fetchCategories() {
-  // Categories endpoint is in questions app, not api app
-  const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000/api';
-  const response = await fetch(`${API_BASE_URL}/questions/categories/`);
-  
-  if (!response.ok) {
-    throw new Error("Failed to fetch categories");
+  try {
+    // Categories endpoint is at /api/categories/ (questions.urls is included under /api/)
+    const data = await apiGet('/categories/');
+    console.log("Categories fetched:", data);
+    
+    // Handle both {categories: [...]} and direct array responses
+    if (Array.isArray(data)) {
+      return data;
+    }
+    return data.categories || [];
+  } catch (error) {
+    console.error("Error fetching categories:", error);
+    throw new Error(`Failed to fetch categories: ${error.message}`);
   }
-  
-  const data = await response.json();
-  return data.categories || [];
 }
 

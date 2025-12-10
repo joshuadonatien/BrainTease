@@ -12,7 +12,7 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000/api
 async function getAuthToken(forceRefresh = false) {
   const user = auth.currentUser;
   if (!user) {
-    throw new Error('User not authenticated');
+    return null; // Return null for guest users instead of throwing
   }
   try {
     // Force refresh to get a new token (helps if token expired)

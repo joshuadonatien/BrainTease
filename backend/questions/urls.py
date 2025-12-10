@@ -1,8 +1,8 @@
 from django.urls import path
-from .views import get_questions, categories_view, questions_proxy_view
+from .views import categories_view
 
 urlpatterns = [
-    path('questions/', get_questions, name='get_questions'),
-    path('questions-proxy/', questions_proxy_view, name='questions_proxy'),
+    # Note: questions/ endpoint is in api.urls (QuestionsView), not here
+    # categories/ endpoint is here because it's part of the questions app
     path('categories/', categories_view, name='categories'),
 ]

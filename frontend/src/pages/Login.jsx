@@ -57,6 +57,10 @@ export default function Login() {
     }
   }
 
+  function handleBackClick() {
+    navigate("/");
+  }
+
   return (
     <div style={styles.page}>
       <div style={styles.back} onClick={handleBackClick}>← Back</div>
