@@ -2,7 +2,7 @@ import React, { useState } from "react";
 import HintButton from "./HintButton";
 import "./GamePage.css";
 
-export default function QuestionCard({ question, onAnswer }) {
+export default function QuestionCard({ question, onAnswer, sessionId, allowedHints, hintsUsed, onHintUsed }) {
   const [hiddenOption, setHiddenOption] = useState(null);
 
   if (!question) return null;
@@ -31,6 +31,10 @@ export default function QuestionCard({ question, onAnswer }) {
         options={question.options}
         answerIndex={question.answer}
         onHint={setHiddenOption}
+        sessionId={sessionId}
+        allowedHints={allowedHints}
+        hintsUsed={hintsUsed}
+        onHintUsed={onHintUsed}
       />
     </div>
   );

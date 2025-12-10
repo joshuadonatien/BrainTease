@@ -7,13 +7,22 @@ const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000/api
 
 /**
  * Get Firebase ID token for authenticated requests
+ * Forces token refresh to ensure we have a valid token
  */
-async function getAuthToken() {
+async function getAuthToken(forceRefresh = false) {
   const user = auth.currentUser;
   if (!user) {
     throw new Error('User not authenticated');
   }
-  return await user.getIdToken();
+  try {
+    // Force refresh to get a new token (helps if token expired)
+    const token = await user.getIdToken(forceRefresh);
+    console.log("Got auth token:", token ? "Token received" : "No token");
+    return token;
+  } catch (error) {
+    console.error("Error getting auth token:", error);
+    throw error;
+  }
 }
 
 /**
@@ -28,31 +37,57 @@ export async function apiRequest(url, options = {}) {
   
   // Add Firebase authentication token
   try {
-    const token = await getAuthToken();
+    // Try to get token, force refresh if first attempt fails
+    let token;
+    try {
+      token = await getAuthToken(false);
+    } catch (error) {
+      console.warn("First token attempt failed, trying with force refresh:", error.message);
+      token = await getAuthToken(true);
+    }
+    
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
+      console.log("Auth token added to request");
+    } else {
+      console.warn("No auth token available");
     }
   } catch (error) {
-    // If authentication fails, let the backend handle it
-    // Don't throw here - some endpoints might work without auth
+    // If authentication fails, log it but don't throw
+    // Some endpoints might work without auth, but most require it
+    console.error("Could not get auth token:", error.message);
+    // For authenticated endpoints, this will cause a 401 which is handled below
   }
+  
+  console.log(`Making API request to: ${API_BASE_URL}${url}`, { method: options.method || 'GET' });
   
   const response = await fetch(`${API_BASE_URL}${url}`, {
     ...options,
     headers,
   });
   
+  console.log(`API response status: ${response.status} ${response.statusText}`);
+  
   if (!response.ok) {
     let errorData;
     try {
       errorData = await response.json();
+      console.error("API error response:", errorData);
     } catch (e) {
       errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
     }
     
     // Handle both error.error and error.message formats
-    const errorMessage = errorData.error || errorData.message || `API Error: ${response.status}`;
-    throw new Error(errorMessage);
+    const errorMessage = errorData.error || errorData.message || errorData.detail || `API Error: ${response.status}`;
+    
+    // Provide more specific error messages based on status code
+    if (response.status === 401) {
+      throw new Error("Authentication required. Please sign in and try again.");
+    } else if (response.status === 403) {
+      throw new Error("Access denied. Please sign in and try again.");
+    } else {
+      throw new Error(errorMessage);
+    }
   }
   
   return response.json();
@@ -90,5 +125,12 @@ export async function apiPut(url, data) {
  */
 export async function apiDelete(url) {
   return apiRequest(url, { method: 'DELETE' });
+}
+
+/**
+ * Submit game score
+ */
+export async function submitScore(scoreData) {
+  return apiPost('/submit-score/', scoreData);
 }
 

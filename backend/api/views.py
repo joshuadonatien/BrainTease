@@ -3,6 +3,7 @@ from typing import List
 import logging
 import uuid
 import random
+import html
 
 from django.utils import timezone
 from django.db import transaction
@@ -125,7 +126,25 @@ class SubmitScoreView(APIView):
 						time_taken_seconds=data.get("time_taken_seconds"),
 					)
 					logger.info(f"GameSession created: {gs.id} for user {uid}")
-					return Response(gs.to_response(display_name), status=status.HTTP_201_CREATED)
+					
+					# Check if score is in top-5 for this difficulty
+					top_5_scores = GameSession.objects.filter(
+						difficulty=data["difficulty"]
+					).order_by("-score", "created_at")[:5]
+					
+					is_top_5 = False
+					rank = None
+					for idx, top_score in enumerate(top_5_scores, start=1):
+						if top_score.id == gs.id:
+							is_top_5 = True
+							rank = idx
+							break
+					
+					response_data = gs.to_response(display_name)
+					response_data["is_top_5"] = is_top_5
+					response_data["rank"] = rank
+					
+					return Response(response_data, status=status.HTTP_201_CREATED)
 
 				# Fallback path: Create lightweight UserScore if no session fields provided
 				# This allows backward compatibility with simpler score submissions
@@ -137,7 +156,25 @@ class SubmitScoreView(APIView):
 					score=data["score"],
 				)
 				logger.info(f"UserScore created: {us.id} for user {uid}")
-				return Response(us.to_response(display_name, include_message=True), status=status.HTTP_201_CREATED)
+				
+				# Check if score is in top-5 for this difficulty
+				top_5_scores = UserScore.objects.filter(
+					difficulty=data["difficulty"]
+				).order_by("-score", "created_at")[:5]
+				
+				is_top_5 = False
+				rank = None
+				for idx, top_score in enumerate(top_5_scores, start=1):
+					if top_score.id == us.id:
+						is_top_5 = True
+						rank = idx
+						break
+				
+				response_data = us.to_response(display_name, include_message=True)
+				response_data["is_top_5"] = is_top_5
+				response_data["rank"] = rank
+				
+				return Response(response_data, status=status.HTTP_201_CREATED)
 
 			except Exception as db_error:
 				# Database error handling: Log full error details for debugging
@@ -416,106 +453,162 @@ class StartGameView(APIView):
                 )
 
             # Build OpenTDB request
+            # Note: OpenTDB API only accepts a SINGLE category ID, not multiple
+            # If multiple categories are provided, we need to make multiple API calls and combine results
             base_url = "https://opentdb.com/api.php"
-            params = {
-                "amount": num_questions,
-                "difficulty": difficulty,
-                "type": "multiple",  # ONLY multiple choice
-            }
-            # Format categories for API with fallback logic
-            # Fallback: Continue without category filter if formatting fails (non-fatal)
-            if category_ids:
-                try:
-                    params["category"] = ",".join(map(str, category_ids))
-                except Exception as e:
-                    # Fallback: Log warning and continue without category filter
-                    logger.warning(f"Error formatting categories: {str(e)}")
-                    # Continue without category filter (graceful degradation)
-
-            # Fetch questions from OpenTDB API with comprehensive error handling
-            # Error handling strategy: Different error types return different HTTP status codes
-            # No fallback - API failure prevents game creation (hard requirement)
-            try:
-                response = requests.get(base_url, params=params, timeout=10)
-                response.raise_for_status()
-                data = response.json()
-            except requests.exceptions.Timeout:
-                # Timeout error: API took too long to respond
-                # Fallback: Return 504 Gateway Timeout (specific error code for timeouts)
-                logger.error("OpenTDB API timeout")
-                return Response(
-                    {"error": "Request to question service timed out"},
-                    status=status.HTTP_504_GATEWAY_TIMEOUT
-                )
-            except requests.exceptions.RequestException as e:
-                # Network/HTTP errors: Connection failed, bad status code, etc.
-                # Fallback: Return 502 Bad Gateway (upstream service error)
-                logger.error(f"OpenTDB API request failed: {str(e)}")
-                return Response(
-                    {"error": "Failed to fetch questions from question service"},
-                    status=status.HTTP_502_BAD_GATEWAY
-                )
-            except ValueError as e:
-                # JSON parsing error: Invalid response format
-                # Fallback: Return 502 Bad Gateway (malformed response from upstream)
-                logger.error(f"Invalid JSON response from OpenTDB: {str(e)}")
-                return Response(
-                    {"error": "Invalid response from question service"},
-                    status=status.HTTP_502_BAD_GATEWAY
-                )
-
-            # Check OpenTDB API response code
-            # Error handling: OpenTDB uses response_code field to indicate success/failure
-            # No fallback - API errors prevent game creation
-            response_code = data.get("response_code", -1)
-            if response_code != 0:
-                # Map OpenTDB error codes to user-friendly messages
-                error_messages = {
-                    1: "No results found",
-                    2: "Invalid parameter",
-                    3: "Token not found",
-                    4: "Token empty"
+            all_questions = []
+            
+            # If multiple categories, fetch from each category separately
+            # If no categories or single category, make one API call
+            if not category_ids:
+                # No categories - fetch from all categories
+                params = {
+                    "amount": num_questions,
+                    "difficulty": difficulty,
+                    "type": "multiple",  # ONLY multiple choice
                 }
-                error_msg = error_messages.get(response_code, "Unknown error")
-                logger.warning(f"OpenTDB returned error code {response_code}: {error_msg}")
+                try:
+                    response = requests.get(base_url, params=params, timeout=10)
+                    response.raise_for_status()
+                    data = response.json()
+                    
+                    # Check response code
+                    response_code = data.get("response_code", -1)
+                    if response_code != 0:
+                        error_messages = {
+                            1: "No results found",
+                            2: "Invalid parameter",
+                            3: "Token not found",
+                            4: "Token empty"
+                        }
+                        error_msg = error_messages.get(response_code, "Unknown error")
+                        logger.warning(f"OpenTDB returned error code {response_code}: {error_msg}")
+                        return Response(
+                            {"error": f"Question service error: {error_msg}"},
+                            status=status.HTTP_400_BAD_REQUEST
+                        )
+                    
+                    # Filter and add questions
+                    questions_batch = [q for q in data.get("results", []) if q.get("type") == "multiple"]
+                    all_questions.extend(questions_batch)
+                    
+                except requests.exceptions.Timeout:
+                    logger.error("OpenTDB API timeout")
+                    return Response(
+                        {"error": "Request to question service timed out"},
+                        status=status.HTTP_504_GATEWAY_TIMEOUT
+                    )
+                except requests.exceptions.RequestException as e:
+                    logger.error(f"OpenTDB API request failed: {str(e)}")
+                    return Response(
+                        {"error": "Failed to fetch questions from question service"},
+                        status=status.HTTP_502_BAD_GATEWAY
+                    )
+                except ValueError as e:
+                    logger.error(f"Invalid JSON response from OpenTDB: {str(e)}")
+                    return Response(
+                        {"error": "Invalid response from question service"},
+                        status=status.HTTP_502_BAD_GATEWAY
+                    )
+            else:
+                # Multiple categories - fetch from each category separately
+                # Calculate questions per category (distribute evenly, but fetch extra to have enough)
+                questions_per_category = max(1, (num_questions // len(category_ids)) + 5)  # Add buffer
+                
+                for category_id in category_ids:
+                    params = {
+                        "amount": min(50, questions_per_category),  # OpenTDB max is 50
+                        "difficulty": difficulty,
+                        "type": "multiple",
+                        "category": str(category_id),  # Single category ID only
+                    }
+                    
+                    try:
+                        response = requests.get(base_url, params=params, timeout=10)
+                        response.raise_for_status()
+                        data = response.json()
+                        
+                        # Check response code
+                        response_code = data.get("response_code", -1)
+                        if response_code != 0:
+                            # Log warning but continue with other categories
+                            error_messages = {
+                                1: "No results found",
+                                2: "Invalid parameter",
+                                3: "Token not found",
+                                4: "Token empty"
+                            }
+                            error_msg = error_messages.get(response_code, "Unknown error")
+                            logger.warning(f"OpenTDB returned error code {response_code} for category {category_id}: {error_msg}")
+                            # Continue with other categories instead of failing completely
+                            continue
+                        
+                        # Filter and add questions
+                        questions_batch = [q for q in data.get("results", []) if q.get("type") == "multiple"]
+                        all_questions.extend(questions_batch)
+                        
+                    except requests.exceptions.Timeout:
+                        logger.warning(f"OpenTDB API timeout for category {category_id}, continuing with other categories")
+                        continue
+                    except requests.exceptions.RequestException as e:
+                        logger.warning(f"OpenTDB API request failed for category {category_id}: {str(e)}, continuing")
+                        continue
+                    except ValueError as e:
+                        logger.warning(f"Invalid JSON response from OpenTDB for category {category_id}: {str(e)}, continuing")
+                        continue
+
+            # Validate we have questions after fetching
+            if not all_questions:
+                logger.warning(f"No multiple-choice questions returned for difficulty={difficulty}, categories={category_ids}")
                 return Response(
-                    {"error": f"Question service error: {error_msg}"},
+                    {"error": "No multiple-choice questions available for the selected categories"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
+            
+            # Use all collected questions
+            questions = all_questions
 
-            # Filter out any boolean questions (defensive check)
-            # Fallback: Only include multiple-choice questions even if API returns mixed types
-            questions = [q for q in data.get("results", []) if q.get("type") == "multiple"]
-
-            # Validate we have questions after filtering
-            # No fallback - cannot create game without questions
+            # RANDOMIZE QUESTION ORDER (before limiting to requested amount)
+            random.shuffle(questions)
+            
+            # Limit to requested number of questions
+            questions = questions[:num_questions]
+            
+            # Final validation - ensure we still have questions after limiting
             if not questions:
-                logger.warning(f"No multiple-choice questions returned for difficulty={difficulty}, amount={num_questions}")
+                logger.warning(f"No multiple-choice questions available after filtering for difficulty={difficulty}, categories={category_ids}")
                 return Response(
                     {"error": "No multiple-choice questions available"},
                     status=status.HTTP_400_BAD_REQUEST
                 )
 
-            # RANDOMIZE QUESTION ORDER
-            random.shuffle(questions)
-
-            # Shuffle answers for each question with per-question error handling
-            # Fallback strategy: Continue processing even if individual question shuffling fails
+            # Decode HTML entities and shuffle answers for each question
+            # OpenTDB returns HTML entities like &quot; which need to be decoded before displaying
             for q in questions:
                 try:
-                    incorrect = q.get("incorrect_answers", [])
-                    correct = q.get("correct_answer", "")
+                    # Decode HTML entities in question text, correct answer, and incorrect answers
+                    q["question"] = html.unescape(q.get("question", ""))
+                    correct = html.unescape(q.get("correct_answer", ""))
+                    incorrect = [html.unescape(x) for x in q.get("incorrect_answers", [])]
+                    
                     if not correct or not incorrect:
                         # Fallback: Skip shuffling for this question if data is invalid
                         logger.warning(f"Question missing answer data: {q.get('question', '')[:50]}")
                         continue
+                    
                     answers = incorrect + [correct]
                     random.shuffle(answers)
                     q["shuffled_answers"] = answers
+                    q["correct_answer"] = correct  # Store decoded correct answer
                 except Exception as e:
                     # Fallback: Log warning and continue without shuffled_answers for this question
                     # Question still included in response, just without shuffled answers
-                    logger.warning(f"Error shuffling answers for question: {str(e)}")
+                    logger.warning(f"Error processing question: {str(e)}")
+                    # Try to decode at least the question text even if answer processing fails
+                    try:
+                        q["question"] = html.unescape(q.get("question", ""))
+                    except:
+                        pass
                     # Continue with original answers if shuffle fails (graceful degradation)
 
             # Create game session with database transaction for atomicity

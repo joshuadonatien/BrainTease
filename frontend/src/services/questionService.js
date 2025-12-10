@@ -1,13 +1,12 @@
-import { apiPost } from './api';
+import { apiPost, apiGet } from './api';
 
+/**
+ * Fetch questions from the backend API
+ * @param {string} difficulty - "easy", "medium", or "hard"
+ * @returns {Promise<Object>} Questions data
+ */
 export async function fetchQuestions(difficulty = "easy") {
-    const res = await fetch(
-      `http://127.0.0.1:8000/api/questions/?difficulty=${difficulty}`
-    );
-  
-    if (!res.ok) throw new Error("Failed to fetch questions");
-  
-    return res.json();
+  return await apiGet(`/questions/?difficulty=${difficulty}`);
 }
 
 /**
@@ -19,11 +18,17 @@ export async function fetchQuestions(difficulty = "easy") {
  * @returns {Promise<Object>} Game data with questions
  */
 export async function startGame(difficulty = "easy", amount = 10, categories = [], boardSeed = null) {
-  const data = await apiPost('/start-game/', {
-    difficulty,
-    amount,
-    categories,
-  });
-  return data;
+  try {
+    const data = await apiPost('/start-game/', {
+      difficulty,
+      amount,
+      categories,
+    });
+    console.log("startGame API response:", data);
+    return data;
+  } catch (error) {
+    console.error("startGame API error:", error);
+    throw error;
+  }
 }
   
