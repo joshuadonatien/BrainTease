@@ -13,7 +13,6 @@ import MultiplayerWaiting from "./pages/MultiplayerWaiting";
 import MultiplayerGame from "./pages/MultiplayerGame";
 import MultiplayerResults from "./pages/MultiplayerResults";
 import MultiplayerWaitingResults from "./pages/MultiplayerWaitingResults";
-import { AuthProvider } from "./context/AuthContext";
 
 export default function App() {
   return (
