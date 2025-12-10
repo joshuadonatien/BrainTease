@@ -1,14 +1,13 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useState, useEffect } from "react";
 import { 
-  signInWithEmailAndPassword,
-  createUserWithEmailAndPassword,
+  onAuthStateChanged, 
+  signInWithEmailAndPassword, 
+  signInWithPopup, 
+  GoogleAuthProvider, 
   signOut,
-  onAuthStateChanged,
-  GoogleAuthProvider,
-  signInWithPopup,
-  updateProfile
-} from 'firebase/auth';
-import { auth } from '../services/firebase';
+  createUserWithEmailAndPassword
+} from "firebase/auth";
+import { auth } from "../services/firebase";
 
 const AuthContext = createContext({});
 
@@ -17,74 +16,55 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }) {
-  const [currentUser, setCurrentUser] = useState(null);
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
-
-  // Sign up function
-  async function signup(email, password, displayName) {
-    const result = await createUserWithEmailAndPassword(auth, email, password);
-    
-    // Update display name
-    if (displayName && result.user) {
-      await updateProfile(result.user, {
-        displayName: displayName
-      });
-    }
-    
-    return result;
-  }
-
-  // Sign in function
-  function login(email, password) {
-    return signInWithEmailAndPassword(auth, email, password);
-  }
-
-  // Google sign in
-  async function signInWithGoogle() {
-    const provider = new GoogleAuthProvider();
-    return signInWithPopup(auth, provider);
-  }
-
-  // Sign out function
-  function logout() {
-    return signOut(auth);
-  }
-
-  // Update display name
-  async function updateDisplayName(displayName) {
-    if (currentUser) {
-      await updateProfile(currentUser, { displayName });
-      // Also update on backend
-      try {
-        const apiService = await import('../services/api');
-        await apiService.default.updateDisplayName(displayName);
-      } catch (error) {
-        console.error('Failed to update display name on backend:', error);
-      }
-    }
-  }
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (user) => {
-      setCurrentUser(user);
+      setUser(user);
       setLoading(false);
     });
-
     return unsubscribe;
   }, []);
 
+  const signIn = async (email, password) => {
+    return await signInWithEmailAndPassword(auth, email, password);
+  };
+
+  const signUp = async (email, password) => {
+    return await createUserWithEmailAndPassword(auth, email, password);
+  };
+
+  const signInWithGoogle = async () => {
+    const provider = new GoogleAuthProvider();
+    return await signInWithPopup(auth, provider);
+  };
+
+  const logout = async () => {
+    return await signOut(auth);
+  };
+
   const value = {
-    currentUser,
-    login,
-    signup,
-    logout,
+    user,
+    loading,
+    signIn,
+    signUp,
     signInWithGoogle,
-    updateDisplayName
+    logout,
+    isAuthenticated: !!user,
   };
 
   return (
     <AuthContext.Provider value={value}>
-      {!loading && children}
+      {children}
     </AuthContext.Provider>
   );
+}
+
+export function useAuth() {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error("useAuth must be used within AuthProvider");
+  }
+  return context;
 }

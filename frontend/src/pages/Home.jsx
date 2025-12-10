@@ -43,7 +43,7 @@ export default function Home() {
           <p>Share your results and challenge friends</p>
         </div>
 
-        <div style={cardStyle}>
+        <div onClick={() => navigate("/lobby")} style={cardStyle}>
           👥
           <h3>MULTI-PLAYER</h3>
           <p>Compete with other players in real-time</p>

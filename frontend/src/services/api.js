@@ -1,84 +1,94 @@
-// API service for connecting to Django backend
-const API_BASE_URL = 'http://127.0.0.1:8000/api';
+/**
+ * API utility for making authenticated requests to the backend
+ */
+import { auth } from './firebase';
 
-class ApiService {
-  constructor() {
-    this.baseUrl = API_BASE_URL;
+const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:8000/api';
+
+/**
+ * Get Firebase ID token for authenticated requests
+ */
+async function getAuthToken() {
+  const user = auth.currentUser;
+  if (!user) {
+    throw new Error('User not authenticated');
   }
-
-  // Get auth token from Firebase
-  async getAuthToken() {
-    // We'll implement this with Firebase auth
-    const user = await this.getCurrentUser();
-    if (user) {
-      return await user.getIdToken();
-    }
-    return null;
-  }
-
-  // Get current Firebase user
-  async getCurrentUser() {
-    const { auth } = await import('./firebase');
-    return auth.currentUser;
-  }
-
-  // Make authenticated API request
-  async request(endpoint, options = {}) {
-    const token = await this.getAuthToken();
-    
-    const config = {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token && { Authorization: `Bearer ${token}` }),
-        ...options.headers,
-      },
-      ...options,
-    };
-
-    const response = await fetch(`${this.baseUrl}${endpoint}`, config);
-    
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`API Error: ${response.status} - ${error}`);
-    }
-
-    return response.json();
-  }
-
-  // API Methods
-  async getQuestions(difficulty = 'easy') {
-    return this.request(`/questions/?difficulty=${difficulty}`);
-  }
-
-  async startGame() {
-    return this.request('/start-game/', {
-      method: 'POST',
-    });
-  }
-
-  async submitScore(data) {
-    return this.request('/submit-score/', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
-  }
-
-  async getLeaderboard() {
-    return this.request('/leaderboard/');
-  }
-
-  async useHint(sessionId) {
-    return this.request(`/use-hint/${sessionId}/`, {
-      method: 'POST',
-    });
-  }
-
-  async updateDisplayName(displayName) {
-    return this.request('/update-display-name/', {
-      method: 'POST',
-      body: JSON.stringify({ display_name: displayName }),
-    });
-  }
+  return await user.getIdToken();
 }
 
-export default new ApiService();
+/**
+ * Make an authenticated API request
+ * Automatically includes Firebase ID token in Authorization header
+ */
+export async function apiRequest(url, options = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...options.headers,
+  };
+  
+  // Add Firebase authentication token
+  try {
+    const token = await getAuthToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  } catch (error) {
+    // If authentication fails, let the backend handle it
+    // Don't throw here - some endpoints might work without auth
+  }
+  
+  const response = await fetch(`${API_BASE_URL}${url}`, {
+    ...options,
+    headers,
+  });
+  
+  if (!response.ok) {
+    let errorData;
+    try {
+      errorData = await response.json();
+    } catch (e) {
+      errorData = { error: `HTTP ${response.status}: ${response.statusText}` };
+    }
+    
+    // Handle both error.error and error.message formats
+    const errorMessage = errorData.error || errorData.message || `API Error: ${response.status}`;
+    throw new Error(errorMessage);
+  }
+  
+  return response.json();
+}
+
+/**
+ * GET request
+ */
+export async function apiGet(url) {
+  return apiRequest(url, { method: 'GET' });
+}
+
+/**
+ * POST request
+ */
+export async function apiPost(url, data) {
+  return apiRequest(url, {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * PUT request
+ */
+export async function apiPut(url, data) {
+  return apiRequest(url, {
+    method: 'PUT',
+    body: JSON.stringify(data),
+  });
+}
+
+/**
+ * DELETE request
+ */
+export async function apiDelete(url) {
+  return apiRequest(url, { method: 'DELETE' });
+}
+

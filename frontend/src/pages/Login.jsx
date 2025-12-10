@@ -3,57 +3,45 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
+  const navigate = useNavigate();
+  const { signIn, signUp, signInWithGoogle } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
-  const [displayName, setDisplayName] = useState("");
-
-  const { login, signup, signInWithGoogle } = useAuth();
-  const navigate = useNavigate();
 
   async function handleSubmit(e) {
     e.preventDefault();
-
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters");
-      return;
-    }
-
     setError("");
     setLoading(true);
 
     try {
       if (isSignUp) {
-        await signup(email, password, displayName);
+        await signUp(email, password);
       } else {
-        await login(email, password);
+        await signIn(email, password);
       }
-      navigate("/"); // Redirect to home after successful login
-    } catch (error) {
-      setError("Failed to " + (isSignUp ? "create account" : "sign in") + ": " + error.message);
+      navigate("/");
+    } catch (err) {
+      setError(err.message || "Authentication failed");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
   }
 
   async function handleGoogleSignIn() {
     setError("");
     setLoading(true);
-
+    
     try {
       await signInWithGoogle();
-      navigate("/"); // Redirect to home after successful login
-    } catch (error) {
-      setError("Failed to sign in with Google: " + error.message);
+      navigate("/");
+    } catch (err) {
+      setError(err.message || "Google sign-in failed");
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
-  }
-
-  function handleBackClick() {
-    navigate("/");
   }
 
   return (
@@ -109,8 +97,8 @@ export default function Login() {
             />
           </div>
 
-          <button type="submit" style={styles.signInBtn} disabled={loading}>
-            {loading ? "Loading..." : (isSignUp ? "Sign Up" : "Sign In")}
+          <button style={styles.signInBtn} disabled={loading}>
+            {loading ? "Loading..." : isSignUp ? "Sign Up" : "Sign In"}
           </button>
         </form>
 
@@ -124,9 +112,12 @@ export default function Login() {
           {isSignUp ? "Already have an account?" : "Don't have an account?"}{" "}
           <span 
             style={styles.link} 
-            onClick={() => setIsSignUp(!isSignUp)}
+            onClick={() => {
+              setIsSignUp(!isSignUp);
+              setError("");
+            }}
           >
-            {isSignUp ? "Sign In" : "Sign Up"}
+            {isSignUp ? "Sign in" : "Sign up"}
           </span>
         </p>
       </div>
