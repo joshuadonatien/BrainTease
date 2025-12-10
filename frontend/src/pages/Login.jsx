@@ -1,20 +1,47 @@
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { useAuth } from "../context/AuthContext";
 
 export default function Login() {
+  const navigate = useNavigate();
+  const { signIn, signUp, signInWithGoogle } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [isSignUp, setIsSignUp] = useState(false);
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-
-    if (password.length < 6) {
-      setError("Password must be at least 6 characters");
-      return;
-    }
-
     setError("");
-    alert("Login pressed (auth is disabled for now)");
+    setLoading(true);
+
+    try {
+      if (isSignUp) {
+        await signUp(email, password);
+      } else {
+        await signIn(email, password);
+      }
+      navigate("/");
+    } catch (err) {
+      setError(err.message || "Authentication failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  async function handleGoogleSignIn() {
+    setError("");
+    setLoading(true);
+    
+    try {
+      await signInWithGoogle();
+      navigate("/");
+    } catch (err) {
+      setError(err.message || "Google sign-in failed");
+    } finally {
+      setLoading(false);
+    }
   }
 
   return (
@@ -52,17 +79,28 @@ export default function Login() {
             />
           </div>
 
-          <button style={styles.signInBtn}>Sign In</button>
+          <button style={styles.signInBtn} disabled={loading}>
+            {loading ? "Loading..." : isSignUp ? "Sign Up" : "Sign In"}
+          </button>
         </form>
 
         <div style={styles.divider}>Or continue with</div>
 
-        <button style={styles.googleBtn}>
+        <button style={styles.googleBtn} onClick={handleGoogleSignIn} disabled={loading}>
           <span>G</span> Sign in with Google
         </button>
 
         <p style={styles.footer}>
-          Don&apos;t have an account? <span style={styles.link}>Sign up</span>
+          {isSignUp ? "Already have an account?" : "Don't have an account?"}{" "}
+          <span 
+            style={styles.link} 
+            onClick={() => {
+              setIsSignUp(!isSignUp);
+              setError("");
+            }}
+          >
+            {isSignUp ? "Sign in" : "Sign up"}
+          </span>
         </p>
       </div>
     </div>
