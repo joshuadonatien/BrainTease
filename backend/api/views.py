@@ -12,8 +12,14 @@ from rest_framework import status, serializers
 from rest_framework.permissions import IsAuthenticated, AllowAny
 
 from .firebase_auth import FirebaseAuthentication
-from .serializers import SubmitScoreSerializer, UpdateDisplayNameSerializer
-from .models import UserScore, GameSession
+from .serializers import (
+    SubmitScoreSerializer, 
+    UpdateDisplayNameSerializer,
+    CreateMultiplayerSerializer, 
+    JoinMultiplayerSerializer, 
+    SubmitMultiplayerScoreSerializer
+)
+from .models import UserScore, GameSession, MultiplayerSession
 
 import requests
 from rest_framework.decorators import api_view, permission_classes
@@ -272,7 +278,7 @@ class LeaderboardView(APIView):
 			# Optimization: Batch Firebase lookups only for users missing display_name
 			users_needing_fetch = [
 				uid for uid in unique_user_ids
-				if not any(obj.user_id == uid and obj.display_name for obj in page_items)
+				if not any(getattr(obj, 'user_id', None) == uid and getattr(obj, 'display_name', None) for obj in page_items)
 			]
 			
 			if firebase_auth and users_needing_fetch:
@@ -785,6 +791,454 @@ class UseHintView(APIView):
 
         except Exception as e:
             logger.error(f"Unexpected error in UseHintView: {str(e)}", exc_info=True)
+            return Response(
+                {"error": "An unexpected error occurred"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+'''
+* Multiplayer Session Management
+* 
+* Create a new multiplayer session
+* Join an existing multiplayer session
+* Submit a score for a multiplayer session
+* Get the status of a multiplayer session
+'''
+
+
+class CreateMultiplayerView(APIView):
+    """Create a new multiplayer session. The creator becomes the first player."""
+    authentication_classes = [FirebaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Create a new multiplayer session.
+        
+        Required fields:
+        - number_of_players: Target number of players (2-10)
+        - difficulty: "easy", "medium", or "hard"
+        - total_questions: Number of questions (1-50)
+        
+        Optional fields:
+        - board_seed: Seed for question generation (auto-generated if not provided)
+        """
+        try:
+            # Get authenticated user ID from Firebase token
+            uid = getattr(request.user, "uid", None)
+            if not uid:
+                logger.warning("CreateMultiplayerView: Missing user UID")
+                return Response(
+                    {"error": "Authentication required"},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            # Get display name from authenticated user
+            display_name = getattr(request.user, "display_name", None) or _get_display_name(uid)
+
+            # Validate request data
+            serializer = CreateMultiplayerSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            
+            number_of_players = serializer.validated_data.get("number_of_players", 2)
+            difficulty = serializer.validated_data.get("difficulty", "easy")
+            total_questions = serializer.validated_data.get("total_questions", 10)
+            board_seed = serializer.validated_data.get("board_seed") or str(uuid.uuid4())
+
+            # Create session with creator as first player
+            with transaction.atomic():
+                join_code = MultiplayerSession.generate_join_code()
+                session = MultiplayerSession.objects.create(
+                    join_code=join_code,
+                    board_seed=board_seed,
+                    number_of_players=number_of_players,
+                    difficulty=difficulty,
+                    total_questions=total_questions,
+                    players=[uid],  # Creator is first player
+                    status="waiting"
+                )
+                logger.info(f"MultiplayerSession created: {session.session_id} (join_code: {join_code}) by user {uid}")
+
+            return Response({
+                "session_id": str(session.session_id),
+                "join_code": session.join_code,
+                "board_seed": session.board_seed,
+                "players": session.players,
+                "number_of_players": session.number_of_players,
+                "current_players": len(session.players),
+                "difficulty": session.difficulty,
+                "total_questions": session.total_questions,
+                "status": session.status,
+                "created_at": session.created_at.isoformat()
+            }, status=status.HTTP_201_CREATED)
+
+        except serializers.ValidationError as e:
+            return Response(
+                {"error": str(e.detail) if hasattr(e, 'detail') else str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in CreateMultiplayerView: {str(e)}", exc_info=True)
+            return Response(
+                {"error": "An unexpected error occurred"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class JoinMultiplayerView(APIView):
+    """Join an existing multiplayer session. Game starts automatically when full."""
+    authentication_classes = [FirebaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Join an existing multiplayer session using a join code.
+        
+        Required fields:
+        - join_code: 6-8 character alphanumeric code (e.g., "ABC123")
+        """
+        try:
+            # Get authenticated user ID from Firebase token
+            uid = getattr(request.user, "uid", None)
+            if not uid:
+                logger.warning("JoinMultiplayerView: Missing user UID")
+                return Response(
+                    {"error": "Authentication required"},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            # Validate request data
+            serializer = JoinMultiplayerSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            join_code = serializer.validated_data["join_code"].upper()  # Normalize to uppercase
+
+            # Fetch session by join_code
+            try:
+                session = MultiplayerSession.objects.select_for_update().get(join_code=join_code)
+            except MultiplayerSession.DoesNotExist:
+                return Response(
+                    {"error": "Invalid join code. Session not found."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Check if session is already finished
+            if session.status == "finished":
+                return Response(
+                    {"error": "Session has already finished"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Check if session is full
+            if session.is_full():
+                return Response(
+                    {"error": "Session is full"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Add player if not already in session
+            with transaction.atomic():
+                # Convert players list to mutable list if needed (for JSONField)
+                players_list = list(session.players) if session.players else []
+                
+                if uid not in players_list:
+                    players_list.append(uid)
+                    session.players = players_list
+                    
+                    # If session is now full, start the game
+                    if session.is_full():
+                        session.status = "active"
+                        session.start_time = timezone.now()
+                        logger.info(f"MultiplayerSession {session.session_id} started - all players joined")
+                    
+                    session.save()
+                    logger.info(f"User {uid} joined session {session.session_id}. Players: {session.players}")
+                else:
+                    logger.info(f"User {uid} already in session {session.session_id}")
+
+            return Response({
+                "session_id": str(session.session_id),
+                "join_code": session.join_code,
+                "players": session.players,
+                "current_players": len(session.players),
+                "number_of_players": session.number_of_players,
+                "status": session.status,
+                "board_seed": session.board_seed,
+                "difficulty": session.difficulty,
+                "total_questions": session.total_questions,
+                "start_time": session.start_time.isoformat() if session.start_time else None
+            }, status=status.HTTP_200_OK)
+
+        except serializers.ValidationError as e:
+            error_detail = e.detail if hasattr(e, 'detail') else str(e)
+            if isinstance(error_detail, dict):
+                error_msg = "; ".join([f"{k}: {v}" if isinstance(v, list) else f"{k}: {v}" for k, v in error_detail.items()])
+            else:
+                error_msg = str(error_detail)
+            return Response(
+                {"error": error_msg},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in JoinMultiplayerView: {str(e)}", exc_info=True)
+            return Response(
+                {"error": f"An unexpected error occurred: {str(e)}"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class SubmitMultiplayerScoreView(APIView):
+    """Submit a player's score for a multiplayer session. Computes winners when all players finish."""
+    authentication_classes = [FirebaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        """
+        Submit a score for a multiplayer session.
+        
+        Required fields:
+        - session_id: UUID of the session
+        - score: Player's score (integer >= 0)
+        
+        Optional fields:
+        - correct_count: Number of correct answers
+        - time_taken_seconds: Time taken to complete the game
+        """
+        try:
+            # Get authenticated user ID from Firebase token
+            uid = getattr(request.user, "uid", None)
+            if not uid:
+                logger.warning("SubmitMultiplayerScoreView: Missing user UID")
+                return Response(
+                    {"error": "Authentication required"},
+                    status=status.HTTP_401_UNAUTHORIZED
+                )
+
+            # Validate request data
+            serializer = SubmitMultiplayerScoreSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            session_id = serializer.validated_data["session_id"]
+            score_value = serializer.validated_data["score"]
+            correct_count = serializer.validated_data.get("correct_count")
+            time_taken_seconds = serializer.validated_data.get("time_taken_seconds")
+
+            # Fetch session with lock to prevent race conditions
+            try:
+                session = MultiplayerSession.objects.select_for_update().get(session_id=session_id)
+            except MultiplayerSession.DoesNotExist:
+                return Response(
+                    {"error": "Session not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            # Verify user is part of the session
+            players_list = list(session.players) if session.players else []
+            if uid not in players_list:
+                logger.warning(f"User {uid} not in session {session_id}. Players: {players_list}")
+                return Response(
+                    {"error": f"You are not a player in this session. Please join the session first."},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+
+            # Verify session is active
+            if session.status == "waiting":
+                return Response(
+                    {"error": "Session has not started yet"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            if session.status == "finished":
+                return Response(
+                    {"error": "Session has already finished"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Store score with additional metadata
+            score_data = {
+                "score": score_value,
+                "correct_count": correct_count,
+                "time_taken_seconds": time_taken_seconds,
+                "submitted_at": timezone.now().isoformat()
+            }
+            
+            with transaction.atomic():
+                session.scores[uid] = score_data
+                
+                # Check if all players have submitted
+                if session.all_players_submitted():
+                    session.status = "finished"
+                    session.finished_at = timezone.now()
+                    # Compute winners
+                    session.winners = session.compute_winners()
+                    logger.info(f"MultiplayerSession {session.session_id} finished. Winners: {session.winners}")
+                else:
+                    session.status = "active"
+                
+                session.save()
+
+            # Build response with player details
+            player_scores = {}
+            for player_id in session.players:
+                if player_id in session.scores:
+                    score_info = session.scores[player_id]
+                    player_scores[player_id] = {
+                        "score": score_info.get("score") if isinstance(score_info, dict) else score_info,
+                        "correct_count": score_info.get("correct_count") if isinstance(score_info, dict) else None,
+                        "time_taken_seconds": score_info.get("time_taken_seconds") if isinstance(score_info, dict) else None,
+                    }
+                else:
+                    player_scores[player_id] = None  # Player hasn't submitted yet
+
+            response_data = {
+                "session_id": str(session.session_id),
+                "status": session.status,
+                "scores": player_scores,
+                "players_submitted": len(session.scores),
+                "total_players": len(session.players),
+            }
+
+            # Include winners if game is finished
+            if session.status == "finished":
+                response_data["winners"] = session.winners
+                response_data["finished_at"] = session.finished_at.isoformat()
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except serializers.ValidationError as e:
+            return Response(
+                {"error": str(e.detail) if hasattr(e, 'detail') else str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        except Exception as e:
+            logger.error(f"Unexpected error in SubmitMultiplayerScoreView: {str(e)}", exc_info=True)
+            return Response(
+                {"error": "An unexpected error occurred"},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class GetMultiplayerSessionView(APIView):
+    """Get the current status of a multiplayer session by session_id or join_code."""
+    authentication_classes = [FirebaseAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, session_id=None):
+        """
+        Get the current status of a multiplayer session.
+        
+        Can be accessed via:
+        - GET /api/multiplayer/<session_id> (UUID from URL)
+        - GET /api/multiplayer/by-code/?join_code=ABC123 (join code from query param)
+        
+        Returns:
+        - Session details
+        - List of players
+        - Current scores (if any)
+        - Status (waiting/active/finished)
+        - Winners (if finished)
+        """
+        try:
+            # Get authenticated user ID (optional - for display purposes only)
+            uid = getattr(request.user, "uid", None)
+
+            # Support both session_id (from URL) and join_code (from query param)
+            join_code = request.query_params.get("join_code")
+            
+            if join_code:
+                # Fetch by join_code (for by-code endpoint)
+                try:
+                    session = MultiplayerSession.objects.get(join_code=join_code.upper())
+                except MultiplayerSession.DoesNotExist:
+                    return Response(
+                        {"error": "Session not found with that join code"},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+            elif session_id:
+                # Fetch by UUID (for UUID endpoint)
+                # Validate session_id format
+                try:
+                    uuid.UUID(str(session_id))
+                except (ValueError, TypeError):
+                    return Response(
+                        {"error": "Invalid session ID format"},
+                        status=status.HTTP_400_BAD_REQUEST
+                    )
+
+                # Fetch session by UUID
+                try:
+                    session = MultiplayerSession.objects.get(session_id=session_id)
+                except MultiplayerSession.DoesNotExist:
+                    return Response(
+                        {"error": "Session not found"},
+                        status=status.HTTP_404_NOT_FOUND
+                    )
+            else:
+                return Response(
+                    {"error": "Either session_id (UUID) or join_code query parameter is required"},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Build player scores with display names
+            player_scores = {}
+            players_list = list(session.players) if session.players else []
+            for player_id in players_list:
+                display_name = _get_display_name(player_id) if firebase_auth else f"Player_{player_id[-4:]}"
+                if player_id in session.scores:
+                    score_info = session.scores[player_id]
+                    score_value = score_info.get("score") if isinstance(score_info, dict) else score_info
+                    player_scores[player_id] = {
+                        "display_name": display_name,
+                        "score": score_value,
+                        "correct_count": score_info.get("correct_count") if isinstance(score_info, dict) else None,
+                        "time_taken_seconds": score_info.get("time_taken_seconds") if isinstance(score_info, dict) else None,
+                        "submitted": True
+                    }
+                else:
+                    player_scores[player_id] = {
+                        "display_name": display_name,
+                        "score": None,
+                        "submitted": False
+                    }
+
+            response_data = {
+                "session_id": str(session.session_id),
+                "join_code": session.join_code,
+                "board_seed": session.board_seed,
+                "status": session.status,
+                "difficulty": session.difficulty,
+                "total_questions": session.total_questions,
+                "number_of_players": session.number_of_players,
+                "current_players": len(session.players),
+                "players": session.players,
+                "player_scores": player_scores,
+                "players_submitted": len(session.scores),
+                "created_at": session.created_at.isoformat(),
+                "start_time": session.start_time.isoformat() if session.start_time else None,
+            }
+
+            # Include finished info if game is finished
+            if session.status == "finished":
+                response_data["finished_at"] = session.finished_at.isoformat() if session.finished_at else None
+                response_data["winners"] = session.winners
+                
+                # Add winner display names
+                if session.winners:
+                    winner_details = []
+                    for winner_id in session.winners:
+                        winner_display_name = _get_display_name(winner_id) if firebase_auth else None
+                        winner_score = session.scores.get(winner_id, {})
+                        winner_score_value = winner_score.get("score") if isinstance(winner_score, dict) else winner_score
+                        winner_details.append({
+                            "user_id": winner_id,
+                            "display_name": winner_display_name,
+                            "score": winner_score_value
+                        })
+                    response_data["winner_details"] = winner_details
+
+            return Response(response_data, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Unexpected error in GetMultiplayerSessionView: {str(e)}", exc_info=True)
             return Response(
                 {"error": "An unexpected error occurred"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
