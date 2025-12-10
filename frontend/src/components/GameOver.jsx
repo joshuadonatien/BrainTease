@@ -6,7 +6,9 @@ export default function GameOver({
   totalQuestions, 
   difficulty, 
   onPlayAgain, 
-  onGoHome 
+  onGoHome,
+  isTop5 = false,
+  rank = null
 }) {
   const percentage = Math.round((score / totalQuestions) * 100);
   
@@ -67,6 +69,13 @@ export default function GameOver({
   return (
     <div className="game-over-container">
       <div className="game-over-card">
+        {isTop5 && (
+          <div className="top-5-banner">
+            <div className="top-5-emoji">🏆</div>
+            <h2 className="top-5-title">Top {rank} Score!</h2>
+            <p className="top-5-message">Congratulations! You made it to the top 5 leaderboard! 🎉</p>
+          </div>
+        )}
         <div className="game-over-header">
           <h1 className="game-over-title">Game Over!</h1>
           <div className="performance-emoji">{getPerformanceEmoji()}</div>

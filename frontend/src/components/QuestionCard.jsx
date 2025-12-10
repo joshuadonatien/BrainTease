@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 
-export default function QuestionCard({ question, onAnswer }) {
+export default function QuestionCard({ question, onAnswer, sessionId, allowedHints, hintsUsed, onHintUsed }) {
   const [hiddenOption, setHiddenOption] = useState(null);
 
   // Generate multiple choice options for questions that only have a correct answer
@@ -99,17 +99,15 @@ export default function QuestionCard({ question, onAnswer }) {
         )}
       </div>
 
-      <button
-        onClick={() => {
-          if (options && options.length > 0) {
-            setHiddenOption(Math.floor(Math.random() * options.length));
-          }
-        }}
-        style={hintButtonStyle}
-        disabled={!options || options.length === 0}
-      >
-        💡 Use Hint
-      </button>
+      <HintButton
+        options={question.options}
+        answerIndex={question.answer}
+        onHint={setHiddenOption}
+        sessionId={sessionId}
+        allowedHints={allowedHints}
+        hintsUsed={hintsUsed}
+        onHintUsed={onHintUsed}
+      />
     </div>
   );
 }

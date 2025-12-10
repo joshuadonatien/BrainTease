@@ -9,6 +9,7 @@ import Difficulty from "./pages/Difficulty";
 import Leaderboard from "./pages/Leaderboard";
 import Login from "./pages/Login";
 import Lobby from "./pages/Lobby";
+import FinalScorePage from "./pages/FinalScorePage";
 import MultiplayerWaiting from "./pages/MultiplayerWaiting";
 import MultiplayerGame from "./pages/MultiplayerGame";
 import MultiplayerResults from "./pages/MultiplayerResults";
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/" element={<Home />} />
           <Route path="/difficulty" element={<Difficulty />} />
           <Route path="/game" element={<GamePage />} />
+          <Route path="/final-score" element={<FinalScorePage />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/login" element={<Login />} />
           <Route path="/lobby" element={<Lobby />} />

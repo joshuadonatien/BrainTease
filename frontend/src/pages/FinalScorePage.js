@@ -1,20 +1,35 @@
-import { useEffect } from "react";
-import { useGame } from "../context/GameContext";
-import { submitScore } from "../services/scoreService";
+import { useNavigate, useLocation } from "react-router-dom";
+import GameOver from "../components/GameOver";
 
 export default function FinalScorePage() {
-  const { score } = useGame();
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  // Get score data from navigation state
+  const score = location.state?.score || 0;
+  const totalQuestions = location.state?.totalQuestions || 0;
+  const correctCount = location.state?.correctCount || 0;
+  const difficulty = location.state?.difficulty || "easy";
+  const isTop5 = location.state?.isTop5 || false;
+  const rank = location.state?.rank || null;
 
-  useEffect(() => {
-    submitScore(score);
-  }, []);
+  const handlePlayAgain = () => {
+    navigate("/difficulty");
+  };
+
+  const handleGoHome = () => {
+    navigate("/");
+  };
 
   return (
-    <div className="final-score">
-      <h1>Your Score: {score}</h1>
-      <button onClick={() => (window.location.href = "/game")}>
-        Play Again
-      </button>
-    </div>
+    <GameOver
+      score={score}
+      totalQuestions={totalQuestions}
+      difficulty={difficulty}
+      onPlayAgain={handlePlayAgain}
+      onGoHome={handleGoHome}
+      isTop5={isTop5}
+      rank={rank}
+    />
   );
 }
