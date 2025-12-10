@@ -63,4 +63,16 @@ class FirebaseAuthentication(authentication.BaseAuthentication):
             return (user, decoded)
 
         except Exception as exc:
-            raise exceptions.AuthenticationFailed("Invalid Firebase token") from exc
+            # Log the actual error for debugging
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Firebase token verification failed: {type(exc).__name__}: {str(exc)}")
+            # Return more helpful error message
+            error_msg = str(exc)
+            if "project_id" in error_msg.lower() or "project" in error_msg.lower():
+                error_msg = "Firebase project mismatch. Please check your Firebase configuration."
+            elif "expired" in error_msg.lower():
+                error_msg = "Firebase token has expired."
+            elif "invalid" in error_msg.lower():
+                error_msg = "Invalid Firebase token."
+            raise exceptions.AuthenticationFailed(f"Invalid Firebase token: {error_msg}") from exc

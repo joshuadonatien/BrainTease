@@ -11,9 +11,9 @@ import { auth } from "../services/firebase";
 
 const AuthContext = createContext({});
 
-export function useAuth() {
-  return useContext(AuthContext);
-}
+// export function useAuth() {
+//   return useContext(AuthContext);
+// }
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
@@ -28,11 +28,48 @@ export function AuthProvider({ children }) {
   }, []);
 
   const signIn = async (email, password) => {
-    return await signInWithEmailAndPassword(auth, email, password);
+    try {
+      return await signInWithEmailAndPassword(auth, email, password);
+    } catch (error) {
+      console.error("Sign in error:", error);
+      // Provide more helpful error messages
+      if (error.code === 'auth/user-not-found') {
+        throw new Error("No account found with this email. Please sign up first.");
+      } else if (error.code === 'auth/wrong-password') {
+        throw new Error("Incorrect password. Please try again.");
+      } else if (error.code === 'auth/invalid-email') {
+        throw new Error("Invalid email address.");
+      } else if (error.code === 'auth/user-disabled') {
+        throw new Error("This account has been disabled.");
+      } else if (error.code === 'auth/operation-not-allowed') {
+        throw new Error("Email/Password authentication is not enabled. Please enable it in Firebase Console.");
+      } else if (error.code === 'auth/network-request-failed') {
+        throw new Error("Network error. Please check your connection.");
+      }
+      throw error;
+    }
   };
 
   const signUp = async (email, password) => {
-    return await createUserWithEmailAndPassword(auth, email, password);
+    try {
+      const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      return userCredential;
+    } catch (error) {
+      console.error("Sign up error:", error);
+      // Provide more helpful error messages
+      if (error.code === 'auth/email-already-in-use') {
+        throw new Error("An account with this email already exists. Please sign in instead.");
+      } else if (error.code === 'auth/invalid-email') {
+        throw new Error("Invalid email address.");
+      } else if (error.code === 'auth/operation-not-allowed') {
+        throw new Error("Email/Password authentication is not enabled. Please enable it in Firebase Console under Authentication → Sign-in method.");
+      } else if (error.code === 'auth/weak-password') {
+        throw new Error("Password is too weak. Please use at least 6 characters.");
+      } else if (error.code === 'auth/network-request-failed') {
+        throw new Error("Network error. Please check your connection.");
+      }
+      throw error;
+    }
   };
 
   const signInWithGoogle = async () => {
