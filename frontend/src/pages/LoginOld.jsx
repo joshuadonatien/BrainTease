@@ -132,6 +132,25 @@ export default function Login() {
       </div>
     </div>
   );
+              required
+            />
+          </div>
+
+          <button style={styles.signInBtn}>Sign In</button>
+        </form>
+
+        <div style={styles.divider}>Or continue with</div>
+
+        <button style={styles.googleBtn}>
+          <span>G</span> Sign in with Google
+        </button>
+
+        <p style={styles.footer}>
+          Don&apos;t have an account? <span style={styles.link}>Sign up</span>
+        </p>
+      </div>
+    </div>
+  );
 }
 
 const styles = {
@@ -163,15 +182,14 @@ const styles = {
 
   subtitle: {
     color: "#777",
-    fontSize: 14,
     marginBottom: 20
   },
 
   error: {
-    color: "#f44336",
-    backgroundColor: "#ffebee",
+    background: "#fdecea",
+    color: "#b91c1c",
     padding: 10,
-    borderRadius: 4,
+    borderRadius: 6,
     marginBottom: 15,
     fontSize: 14
   },
@@ -179,61 +197,51 @@ const styles = {
   inputWrap: {
     display: "flex",
     alignItems: "center",
-    border: "2px solid #ddd",
+    gap: 8,
+    background: "#f1f5fb",
+    padding: "10px 12px",
     borderRadius: 8,
-    padding: "12px 15px",
-    marginBottom: 15,
-    backgroundColor: "#fff"
+    marginBottom: 15
   },
 
   signInBtn: {
     width: "100%",
-    padding: 15,
-    backgroundColor: "#5b918c",
+    background: "#5b918c",
     color: "white",
     border: "none",
+    padding: "12px 0",
     borderRadius: 8,
-    fontSize: 16,
-    fontWeight: 600,
-    cursor: "pointer",
-    marginBottom: 20,
-    transition: "background-color 0.2s"
+    marginTop: 10,
+    fontWeight: "bold",
+    cursor: "pointer"
   },
 
   divider: {
     textAlign: "center",
-    color: "#999",
-    fontSize: 14,
     margin: "20px 0",
-    position: "relative"
+    color: "#aaa",
+    fontSize: 14
   },
 
   googleBtn: {
     width: "100%",
-    padding: 15,
-    backgroundColor: "#fff",
-    color: "#333",
-    border: "2px solid #ddd",
+    padding: "10px 0",
     borderRadius: 8,
-    fontSize: 16,
-    cursor: "pointer",
-    marginBottom: 20,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    transition: "border-color 0.2s"
+    border: "1px solid #ddd",
+    background: "white",
+    fontWeight: "bold",
+    cursor: "pointer"
   },
 
   footer: {
     textAlign: "center",
-    color: "#666",
+    marginTop: 20,
     fontSize: 14
   },
 
   link: {
     color: "#5b918c",
-    cursor: "pointer",
-    fontWeight: 600
+    fontWeight: "bold",
+    cursor: "pointer"
   }
 };
