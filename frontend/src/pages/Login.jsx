@@ -1,15 +1,22 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import { updateProfile } from "firebase/auth";
+import { auth } from "../services/firebase";
 
 export default function Login() {
   const navigate = useNavigate();
   const { signIn, signUp, signInWithGoogle } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [displayName, setDisplayName] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [isSignUp, setIsSignUp] = useState(false);
+
+  function handleBackClick() {
+    navigate("/");
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -18,7 +25,13 @@ export default function Login() {
 
     try {
       if (isSignUp) {
-        await signUp(email, password);
+        const userCredential = await signUp(email, password);
+        // Set display name if provided
+        if (displayName && userCredential.user) {
+          await updateProfile(userCredential.user, {
+            displayName: displayName
+          });
+        }
       } else {
         await signIn(email, password);
       }

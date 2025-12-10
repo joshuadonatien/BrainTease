@@ -6,7 +6,7 @@ import Sidebar from "./Sidebar";
 export default function Navbar() {
   const [open, setOpen] = useState(false);
   const navigate = useNavigate();
-  const { currentUser, logout } = useAuth();
+  const { user, logout, isAuthenticated } = useAuth();
 
   async function handleLogout() {
     try {
@@ -20,6 +20,14 @@ export default function Navbar() {
   function handleSignIn() {
     navigate("/login");
   }
+
+  // Get display name: prefer displayName, fallback to email username, then "User"
+  const getDisplayName = () => {
+    if (!user) return "Guest";
+    if (user.displayName) return user.displayName;
+    if (user.email) return user.email.split('@')[0];
+    return "User";
+  };
 
   return (
     <>
@@ -60,10 +68,12 @@ export default function Navbar() {
 
         {/* ✅ USER AUTHENTICATION SECTION */}
         <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          {currentUser ? (
-            // Show user info and logout when authenticated
+          {isAuthenticated && user ? (
+            // Show user info and sign out when authenticated
             <>
-              <span>Hello, {currentUser.displayName || currentUser.email?.split('@')[0] || 'User'}</span>
+              <span style={{ fontSize: 14, opacity: 0.9 }}>
+                Playing as {getDisplayName()}
+              </span>
               <button
                 onClick={handleLogout}
                 style={{
