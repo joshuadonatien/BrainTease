@@ -80,21 +80,24 @@ export default function Navbar() {
               </button>
             </>
           ) : (
-            // Show sign in button when not authenticated
-            <button
-              onClick={handleSignIn}
-              style={{
-                background: "white",
-                color: "#5b9491",
-                border: "none",
-                padding: "6px 14px",
-                borderRadius: 8,
-                fontWeight: "bold",
-                cursor: "pointer",
-              }}
-            >
-              Sign In
-            </button>
+            // Show guest status and sign in option
+            <>
+              <span style={{ fontSize: 14, opacity: 0.9 }}>Playing as Guest</span>
+              <button
+                onClick={handleSignIn}
+                style={{
+                  background: "white",
+                  color: "#5b9491",
+                  border: "none",
+                  padding: "6px 14px",
+                  borderRadius: 8,
+                  fontWeight: "bold",
+                  cursor: "pointer",
+                }}
+              >
+                Sign In
+              </button>
+            </>
           )}
         </div>
       </div>

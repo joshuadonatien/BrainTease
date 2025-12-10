@@ -18,22 +18,8 @@ export default function App() {
 
         <Routes>
           <Route path="/" element={<Home />} />
-          <Route 
-            path="/difficulty" 
-            element={
-              <ProtectedRoute>
-                <Difficulty />
-              </ProtectedRoute>
-            } 
-          />
-          <Route 
-            path="/game" 
-            element={
-              <ProtectedRoute>
-                <GamePage />
-              </ProtectedRoute>
-            } 
-          />
+          <Route path="/difficulty" element={<Difficulty />} />
+          <Route path="/game" element={<GamePage />} />
           <Route path="/leaderboard" element={<Leaderboard />} />
           <Route path="/login" element={<Login />} />
         </Routes>
