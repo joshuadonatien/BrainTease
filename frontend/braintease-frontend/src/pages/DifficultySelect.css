@@ -1,0 +1,4 @@
+.difficulty-wrap { text-align:center; padding:30px; }
+.difficulty-grid { display:flex; justify-content:center; gap:16px; margin-top:20px; }
+.btn-diff { padding:12px 20px; border-radius:6px; border:0; cursor:pointer; font-weight:600; }
+.btn-diff:hover { transform:translateY(-2px); }
