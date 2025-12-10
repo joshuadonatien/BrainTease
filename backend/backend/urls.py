@@ -16,9 +16,26 @@ Including another URLconf
 """
 from django.contrib import admin
 from django.urls import path, include
+from django.http import JsonResponse
+
+def root(request):
+    return JsonResponse({"message": "Backend is running!"})
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/', include('api.urls')),
-    path('api/questions/', include('questions.urls')),
+    path("", root),
+    path("admin/", admin.site.urls),
+
+    # IMPORTANT: include api.urls WITH a namespace
+    path(
+        "api/",
+        include(("api.urls", "api"), namespace="api")
+    ),
+
+    # If your questions app is separate, give it a namespace too
+    path(
+        "api/questions/",
+        include(("questions.urls", "questions"), namespace="questions")
+    ),
 ]
+
+

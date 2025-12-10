@@ -1,6 +1,7 @@
 from types import SimpleNamespace
 from rest_framework import authentication, exceptions
 
+
 try:
     import firebase_admin
     from firebase_admin import auth as firebase_auth
