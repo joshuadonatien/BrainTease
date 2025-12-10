@@ -78,3 +78,9 @@ serviceAccountKey.json
 *.swp
 *.lock
 
+
+
+.env
+*.pyc
+__pycache__/
+db.sqlite3

@@ -1,6 +1,5 @@
 import { Routes, Route } from "react-router-dom";
-
-//import Layout from "./components/Layout";
+import { AuthProvider } from "./context/AuthContext";
 
 import Home from "./pages/Home";
 import Login from "./pages/Login";
@@ -12,9 +11,8 @@ import DifficultySelector from "./pages/DifficultySelector";
 
 function App() {
   return (
-    <>
+    <AuthProvider>
       <Navbar />
-
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/login" element={<Login />} />
@@ -23,7 +21,7 @@ function App() {
         <Route path="/leaderboard" element={<Leaderboard />} />
         <Route path="/select-difficulty" element={<DifficultySelector />} />
       </Routes>
-    </>
+    </AuthProvider>
   );
 }
 
