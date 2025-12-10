@@ -1,0 +1,38 @@
+:root {
+    --primary: #3f8f8b;
+    --primary-dark: #2e6f6c;
+    --light: #f6fafa;
+    --card: #ffffff;
+    --border: #e0e0e0;
+    --text: #1e1e1e;
+  }
+  
+  body {
+    margin: 0;
+    font-family: "Inter", system-ui, sans-serif;
+    background: var(--light);
+    color: var(--text);
+  }
+  
+  button {
+    cursor: pointer;
+    border: none;
+    padding: 10px 18px;
+    border-radius: 8px;
+    background: var(--primary);
+    color: white;
+    font-weight: 600;
+    transition: 0.2s;
+  }
+  
+  button:hover {
+    background: var(--primary-dark);
+  }
+  
+  .card {
+    background: var(--card);
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.06);
+  }
+  
