@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import GuestNotification from './GuestNotification';
 
 export default function Leaderboard() {
   const [leaderboardData, setLeaderboardData] = useState([]);
@@ -67,6 +68,9 @@ export default function Leaderboard() {
           Top scores from our trivia champions
         </p>
       </div>
+
+      {/* Guest Notification */}
+      <GuestNotification message="Sign in to save your scores and appear on the leaderboard!" />
 
       {/* Filter Buttons */}
       <div style={{ 

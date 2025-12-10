@@ -92,7 +92,7 @@ export default function Home() {
         textAlign: "center"
       }}>
         <h2>Ready to Test Your Knowledge?</h2>
-        <p>Sign in to start playing and climb the leaderboards</p>
+        <p>Play as a guest or sign in to track your scores and compete on leaderboards!</p>
 
         <button
           onClick={() => navigate("/difficulty")}
@@ -106,7 +106,7 @@ export default function Home() {
             color: "#5b9491"
           }}
         >
-          Sign In to Play
+          Choose Game
         </button>
       </div>
 
