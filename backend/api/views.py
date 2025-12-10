@@ -333,16 +333,40 @@ class LeaderboardView(APIView):
 
 
 class QuestionsView(APIView):
-	"""Placeholder stub for GET /api/questions/.
-
-	Returns an empty `questions` array for now. Implement question sourcing,
-	filtering by `difficulty` and `categories`, and authentication logic later.
-	"""
+	"""Get questions from the database with optional filtering by difficulty and limit."""
 	permission_classes = [AllowAny]
 
 	def get(self, request):
-		# TODO: implement question retrieval and query params
-		return Response({"questions": []}, status=status.HTTP_200_OK)
+		from questions.models import Question
+		from questions.serializers import QuestionSerializer
+		import random
+		
+		# Get query parameters
+		difficulty = request.GET.get('difficulty')
+		try:
+			limit = int(request.GET.get('limit', 10))
+			if limit < 1:
+				limit = 10
+			if limit > 100:
+				limit = 100
+		except (ValueError, TypeError):
+			limit = 10
+		
+		# Build query
+		queryset = Question.objects.all()
+		if difficulty and difficulty.lower() in ['easy', 'medium', 'hard']:
+			queryset = queryset.filter(difficulty=difficulty.lower())
+		
+		# Get random questions
+		questions = list(queryset)
+		if len(questions) > limit:
+			questions = random.sample(questions, limit)
+		elif questions:
+			random.shuffle(questions)
+		
+		# Serialize and return
+		serializer = QuestionSerializer(questions, many=True)
+		return Response({"success": True, "questions": serializer.data}, status=status.HTTP_200_OK)
 
 
 class StartGameView(APIView):
